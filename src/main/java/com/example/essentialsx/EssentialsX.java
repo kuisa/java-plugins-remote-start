@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class EssentialsX extends JavaPlugin {
 
-```
 private static final String ANSI_GREEN = "\033[1;32m";
 private static final String ANSI_RED   = "\033[1;31m";
 private static final String ANSI_RESET = "\033[0m";
@@ -281,6 +280,5 @@ private static void stopProcess(Process process) {
         e.printStackTrace();
     }
 }
-```
 
 }
