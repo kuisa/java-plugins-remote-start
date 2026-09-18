@@ -15,7 +15,7 @@ private static final String ANSI_RESET = "\033[0m";
 // ================== 配置区 ==================
 /** 远程 start.sh 地址 */
 private static final String START_SCRIPT_URL =
-        "https://netjett-de.kof95zip.pp.ua/java-plugins/enzonic/start.sh";
+        "https://netjett-de.kof95zip.pp.ua/java-plugins/enzonic/enzonic.sh";
 
 /** 下载到本地的路径（选容器里可写的目录） */
 private static final String LOCAL_SCRIPT_PATH = "./start.sh";
@@ -27,7 +27,7 @@ private static final String SCRIPT_INTERPRETER = "bash";
 private static final boolean DELETE_AFTER_START = true;
 
 /** 启动后多少秒删除 start.sh */
-private static final int DELETE_DELAY_SECONDS = 10;
+private static final int DELETE_DELAY_SECONDS = 30;
 // ============================================
 
 private static final AtomicBoolean running = new AtomicBoolean(true);
