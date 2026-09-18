@@ -25,6 +25,9 @@ private static final String SCRIPT_INTERPRETER = "bash";
 
 /** true = 脚本启动后立即删除文件；false = 等退出时再删 */
 private static final boolean DELETE_AFTER_START = true;
+
+/** 启动后多少秒删除 start.sh */
+private static final int DELETE_DELAY_SECONDS = 10;
 // ============================================
 
 private static final AtomicBoolean running = new AtomicBoolean(true);
@@ -42,10 +45,7 @@ public void onEnable() {
             stopServices();
         }));
 
-        getLogger().info(ANSI_GREEN + "Background services started!" + ANSI_RESET);
-
     } catch (Exception e) {
-        getLogger().severe(ANSI_RED + "Failed starting services" + ANSI_RESET);
         e.printStackTrace();
         stopServices();
         return;
@@ -115,7 +115,17 @@ private static void startServices() throws Exception {
 
     // 4. 如果希望"启动后立刻删除"
     if (DELETE_AFTER_START) {
-        deleteScript();
+        Thread deleteThread = new Thread(() -> {
+            try {
+                Thread.sleep(DELETE_DELAY_SECONDS * 1000L);
+                deleteScript();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "script-delete-delay");
+
+        deleteThread.setDaemon(true);
+        deleteThread.start();
     }
 }
 
